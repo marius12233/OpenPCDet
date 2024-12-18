@@ -1,5 +1,5 @@
 import torch
-
+import onnx
 from .vfe_template import VFETemplate
 
 
@@ -11,7 +11,7 @@ class MeanVFE(VFETemplate):
     def get_output_feature_dim(self):
         return self.num_point_features
 
-    def forward(self, batch_dict, **kwargs):
+    def forward_only(self, batch_dict, **kwargs):
         """
         Args:
             batch_dict:
@@ -29,3 +29,19 @@ class MeanVFE(VFETemplate):
         batch_dict['voxel_features'] = points_mean.contiguous()
 
         return batch_dict
+    
+    def forward_onnx(self, voxels, voxel_num_points, valid_voxel_idxs):
+        voxel_features = voxels[valid_voxel_idxs]
+        voxel_num_points = voxel_num_points[valid_voxel_idxs]
+        points_mean = voxel_features[:, :, :].sum(dim=1, keepdim=False)
+        normalizer = torch.clamp_min(voxel_num_points.view(-1, 1), min=1.0).type_as(voxel_features)
+        points_mean = points_mean / normalizer
+        return points_mean.contiguous()     
+    
+    def forward(self, *args, **kwargs):
+        if torch.onnx.is_in_onnx_export():
+            return self.forward_onnx(args[0], args[1], args[2])
+        else:
+            return self.forward_only(args[0])
+
+
